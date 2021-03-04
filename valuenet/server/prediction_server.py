@@ -189,7 +189,6 @@ def addWhereColumnsToSelectionIfMissing(sql):
 
 
 def _execute_query(sql, db):
-    sql = addWhereColumnsToSelectionIfMissing(sql)
     conn = sqlite3.connect(db)
     cursor = conn.cursor()
 
@@ -401,6 +400,7 @@ def handle_request0(request):
 
         print(colored(f"Transformed to SQL: {sql}", 'cyan', attrs=['bold']))
         print()
+        sql = addWhereColumnsToSelectionIfMissing(sql)
         result = _execute_query(sql, database_path)
 
         print(f"Executed on the database '{args.database}'. Results: ")
