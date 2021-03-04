@@ -28,6 +28,8 @@ from src.rule import semQL
 
 import shutil
 import subprocess
+import traceback
+import sqlparse
 
 
 
@@ -72,6 +74,7 @@ def _inference_semql(data_row, schemas, model):
 
     with torch.no_grad():
         results_all = model.parse(example, beam_size=1)
+    print('RESULTS_FROM_MODEL')
     results = results_all[0]
     # here we set assemble the predicted actions (including leaf-nodes) as string
     full_prediction = " ".join([str(x) for x in results[0].actions])
@@ -114,8 +117,79 @@ def _semql_to_sql(prediction, schemas):
     result = transform(prediction, schemas[prediction['db_id']])
     return result[0]
 
+class MyList(list):
+    def __init__(self, *args):
+        super(MyList, self).__init__(args)
+
+    def __sub__(self, other):
+        return self.__class__(*[item for item in self if item not in other])
+
+def addWhereColumnsToSelectionIfMissing(sql):
+    parsed = sqlparse.parse(sql)
+    selectCols = MyList()
+    for token in parsed[0].tokens:
+        if isinstance(token, sqlparse.sql.Identifier):
+            selectCols.append(token.value)
+        if isinstance(token, sqlparse.sql.IdentifierList):
+            values = token.value.split(",")
+            values = map(str.strip, values)
+            selectCols.extend(values)
+        if token.ttype is sqlparse.tokens.Keyword:
+            break
+    whereCols = MyList()
+    for token in parsed[0].tokens:
+        if not isinstance(token, sqlparse.sql.Where):
+            continue
+        else:
+            if isinstance(token, sqlparse.sql.Where):
+                whereCols = MyList()
+                for whereTkn in token.tokens:
+                    if isinstance(whereTkn, sqlparse.sql.Comparison):
+                        for compTkn in whereTkn.tokens:
+                            if isinstance(compTkn, sqlparse.sql.Identifier):
+                                whereCols.append(compTkn.value)
+    missingInSelect = whereCols - selectCols
+    missingInSelectCommas = []
+    for missing in missingInSelect:
+        missingInSelectCommas.append(missing)
+        missingInSelectCommas.append(",")
+    missingInSelect = missingInSelectCommas[0:len(missingInSelectCommas)-1]
+    sqlAdjusted = []
+    fromReached = False
+    missingAdded = False
+    for token in parsed[0].tokens:
+        if fromReached:
+            sqlAdjusted.append(token.value)
+        else:
+            if isinstance(token, sqlparse.sql.Identifier):
+                sqlAdjusted.append(token.value)
+                if not missingAdded:
+                    sqlAdjusted.append(", ")
+                    sqlAdjusted.extend(missingInSelect)
+                    missingAdded = True
+            else:
+                if isinstance(token, sqlparse.sql.IdentifierList):
+                    values = token.value.split(",")
+                    values = map(str.strip, values)
+                    valuesWithComma = []
+                    for val in values:
+                        valuesWithComma.append(val)
+                        valuesWithComma.append(",")
+                    if not missingAdded:
+                        for missing in missingInSelect:
+                            valuesWithComma.append(missing)
+                            valuesWithComma.append(",")
+                        missingAdded = True
+                    sqlAdjusted.extend(valuesWithComma[0:len(valuesWithComma)-1])
+                else:
+                    sqlAdjusted.append(token.value)
+                    if token.ttype is sqlparse.tokens.Keyword and not fromReached:
+                        fromReached = True
+    return "".join(sqlAdjusted)
+
 
 def _execute_query(sql, db):
+    sql = addWhereColumnsToSelectionIfMissing(sql)
     conn = sqlite3.connect(db)
     cursor = conn.cursor()
 
@@ -342,7 +416,8 @@ def handle_request0(request):
         }
         code = 200
     except Exception as e:
-        message = { "error": str(e) }
+        tracebackRes = traceback.format_exc()
+        message = { "error": str(e), "traceback": tracebackRes}
         code = 500
     if debug:
         message['base'] = base

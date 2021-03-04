@@ -1,5 +1,5 @@
 FROM ubuntu:18.04
-
+#to build this --> docker build -t valuenet:kosta11 .
 RUN \
   apt update && \
   apt install -y git wget && \
@@ -26,6 +26,9 @@ RUN \
 RUN \
   apt update && \
   apt install -y unzip
+RUN \
+  apt update && \
+  apt install -y vim
 
 ADD requirements.txt requirements.txt
 

@@ -14,4 +14,4 @@ echo "nltk.download('averaged_perceptron_tagger')"
 ) | python
 
 cd /valuenet
-PYTHONPATH=/valuenet/src python /server/prediction_server.py
+PYTHONPATH=/valuenet/src python -u /server/prediction_server.py 
